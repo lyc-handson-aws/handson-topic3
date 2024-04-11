@@ -1,7 +1,7 @@
 # Topic 3 - Shared FS between 2 servers(EC2+EFS)
 ##  Yuanchao Hands-on Project
 
-## This readme is more readable (https://github.com/lyc-handson-aws/handson-topic3)
+## This readme is more readable [here](https://github.com/lyc-handson-aws/handson-topic3)
 
 
 ## **Overview**
