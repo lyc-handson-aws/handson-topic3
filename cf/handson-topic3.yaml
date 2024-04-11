@@ -1,0 +1,248 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+## =================== DESCRIPTION =================== ##
+Description: >-
+  A Cloudformation Stack for creating 2 Servers with a shared file system mounted.
+  one server can write on shared file system,
+  one server can only read on shared file system.
+    - Amazon EC2
+    - AWS EFS
+  After stack is launched and finished, User need to :
+   1. connect to 2 servers, check there is a already a mount point on /mnt/myefs/
+   2. with server that have write permission, create a file on EFS mount path
+   3. check with server that have only read permission that the file is there, but cant be modified
+
+## ===================== METADATA ===================== ##
+Metadata:
+  'AWS::CloudFormation::Interface':
+    ParameterGroups:
+      - Label:
+          default: Tag parameters for all tagable resources
+        Parameters:
+          - paramUniqueTagName
+          - paramUniqueTagValue
+      - Label:
+          default: Network configuration for servers
+        Parameters:
+          - paramPublicVPC
+          - paramPublicSubnet
+          - paramKeyname
+
+## ==================== PARAMETERS ==================== ##
+Parameters:
+  paramUniqueTagName:
+    Type: String
+    Default: 'yuanchao-handson-tag'
+    Description: unique tag for all resources defined in this stack Cloudformation
+  paramUniqueTagValue:
+    Type: String
+    Description: unique tag's value
+  paramPublicVPC:
+    Type: AWS::EC2::VPC::Id
+    Description: Public VPC id for ec2
+  paramPublicSubnet:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet id for ec2
+  paramKeyname:
+    Type: String
+    Description: key name for ssh to ec2
+
+## ==================== MAPPINGS ==================== ##
+#Mappings:
+
+## ==================== CONDITIONS ==================== ##
+# Conditions:
+
+## =================== RESOURCES =================== ##
+Resources:
+  myEFS:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      FileSystemTags:
+      - Key: name
+        Value: !Sub 'EFS-${paramUniqueTagValue}'
+      - Key: !Ref paramUniqueTagName
+        Value: !Ref paramUniqueTagValue
+      PerformanceMode: generalPurpose
+      Encrypted: true
+
+  myEFSAP:
+    Type: 'AWS::EFS::AccessPoint'
+    Properties:
+      FileSystemId: !Ref myEFS
+      PosixUser:
+        Uid: "1234"
+        Gid: "1234"
+      RootDirectory:
+        CreationInfo:
+          OwnerGid: "4321"
+          OwnerUid: "4321"
+          Permissions: "0775"
+        Path: "/myefsap/ap"
+
+  myEFSSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: for efs and 2 vm who mount the efs
+      VpcId: !Ref paramPublicVPC
+      SecurityGroupIngress:
+      - IpProtocol: "-1"
+        FromPort: "-1"
+        ToPort: "-1"
+        CidrIp: "0.0.0.0/0"
+      Tags:
+      - Key: !Ref paramUniqueTagName
+        Value: !Ref paramUniqueTagValue
+
+  myMountTarget:
+    Type: AWS::EFS::MountTarget
+    DependsOn:
+    - myEFS
+    - myEFSSG
+    Properties:
+      FileSystemId: !Ref myEFS
+      SubnetId: !Ref paramPublicSubnet
+      SecurityGroups:
+      - !Ref myEFSSG
+
+  myEFSreadonlyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'role-${paramUniqueTagValue}-readonly'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: !Sub 'policy-${paramUniqueTagValue}-readonly'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Deny
+            Action: 
+              - elasticfilesystem:ClientWrite
+              - elasticfilesystem:ClientRootAccess
+            Resource: 
+            - !GetAtt myEFS.Arn
+      Tags:
+      - Key: !Ref paramUniqueTagName
+        Value: !Ref paramUniqueTagValue
+
+  myEFSreadonlyInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: myEFSreadonlyRole
+
+
+  myEC2Read: 
+    Type: AWS::EC2::Instance
+    DependsOn:
+    - myEFSreadonlyInstanceProfile
+    - myEFS
+    - myEFSAP
+    - myMountTarget
+    Properties: 
+      ImageId: ami-0b7282dd7deb48e78
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref myEFSreadonlyInstanceProfile
+      KeyName: 
+        Ref: paramKeyname
+      UserData:
+        Fn::Base64: 
+          Fn::Sub: |
+            #!/bin/bash 
+            yum install amazon-efs-utils -y
+            mkdir -p /mnt/myefs/
+            mount -t efs -o tls,iam,accesspoint=${myEFSAP} ${myEFS} /mnt/myefs/
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+          - !Ref myEFSSG
+          SubnetId: 
+            Ref: "paramPublicSubnet"
+      Tags:
+      - Key: !Ref paramUniqueTagName
+        Value: !Ref paramUniqueTagValue
+  
+  myEFSwriteRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'role-${paramUniqueTagValue}-write'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - ec2.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: "/"
+      Policies:
+      - PolicyName: !Sub 'policy-${paramUniqueTagValue}-write'
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action: 
+              - elasticfilesystem:ClientWrite
+              - elasticfilesystem:ClientRootAccess
+              - elasticfilesystem:ClientMount
+            Resource: 
+            - !GetAtt myEFS.Arn
+      Tags:
+      - Key: !Ref paramUniqueTagName
+        Value: !Ref paramUniqueTagValue
+
+  myEFSwriteInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: "/"
+      Roles:
+      - Ref: myEFSwriteRole
+
+
+  myEC2Write: 
+    Type: AWS::EC2::Instance
+    DependsOn:
+    - myEFS
+    - myEFSAP
+    - myMountTarget
+    - myEFSwriteInstanceProfile
+    Properties: 
+      ImageId: ami-0b7282dd7deb48e78
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref myEFSwriteInstanceProfile
+      KeyName: 
+        Ref: paramKeyname
+      UserData:
+        Fn::Base64: 
+          Fn::Sub: |
+            #!/bin/bash 
+            yum install amazon-efs-utils -y
+            mkdir -p /mnt/myefs/
+            mount -t efs -o tls,iam,accesspoint=${myEFSAP} ${myEFS} /mnt/myefs/
+      NetworkInterfaces: 
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet: 
+          - !Ref myEFSSG
+          SubnetId: 
+            Ref: "paramPublicSubnet"
+      Tags:
+      - Key: !Ref paramUniqueTagName
+        Value: !Ref paramUniqueTagValue
+
+
+## ======================= OUTPUT ====================== ##
+#Outputs:
+
