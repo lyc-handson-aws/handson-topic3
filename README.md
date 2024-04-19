@@ -15,7 +15,12 @@
 
 :point_right: 2 servers are publicly accessible via SSH
 
+## What could be learned in this topic:
 
+1. How to create an EFS
+2. How to configure an EFS's mount point default owner/path and the owner and permissions of created files/directories
+3. How to use an EFS with EC2 via a mount point
+4. How to configure an IAM role to have read or write permissions on an EFS
 
 ## **Architecture**
 the diagram below illustrates the architecture(principle) of this project:
@@ -24,7 +29,7 @@ the diagram below illustrates the architecture(principle) of this project:
 
 
 ## Continue Deployment
-CloudFormation stack's deployment: see GitHub workflows https://github.com/lyc-handson-aws/handson-topic3/blob/main/.github/workflows/action-cf.yaml
+CloudFormation stack's deployment: see GitHub workflows https://github.com/lyc-handson-aws/handson-topic3/blob/master/.github/workflows/action-cf.yaml
 
 ## **CloudFormation Stack Quick-create Link**
 Click here to quickly create a same project with the same AWS resources:  [here](https://eu-west-3.console.aws.amazon.com/cloudformation/home?region=eu-west-3#/stacks/create/review?templateURL=https://s3bucket-handson-topic1.s3.eu-west-3.amazonaws.com/CF-template-handson-topic3.yaml)
